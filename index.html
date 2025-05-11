@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raytracing Demo - Final</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --border-color: #000000;
+            --switch-bg: #ccc;
+            --switch-active: #2196F3;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --text-color: #ffffff;
+            --border-color: #ffffff;
+            --switch-bg: #4a4a4a;
+            --switch-active: #66b3ff;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            margin: 20px auto;
+            display: block;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: rgba(0,0,0,0.1);
+        }
+
+        .slider-container {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="theme-switch-wrapper">
+        <label class="theme-switch">
+            <input type="checkbox" id="themeToggle">
+            <span class="slider"></span>
+        </label>
+        <span>Dark Mode</span>
+    </div>
+
+    <canvas id="rtCanvas" width="600" height="600"></canvas>
+    
+    <div class="controls">
+        <div class="slider-container">
+            <label>Brightness: <span id="brightVal">1.0</span></label>
+            <input type="range" id="brightness" min="0.5" max="2.0" step="0.1" value="1.0">
+        </div>
+        <div class="slider-container">
+            <label>Zoom: <span id="zoomVal">1.0</span></label>
+            <input type="range" id="zoom" min="0.5" max="2.0" step="0.1" value="1.0">
+        </div>
+        <div class="slider-container">
+            <label>Glass IOR: <span id="iorVal">1.5</span></label>
+            <input type="range" id="ior" min="1.0" max="2.5" step="0.1" value="1.5">
+        </div>
+    </div>
+
+<script>
+// Vector operations using glMatrix
+const vec3 = glMatrix.vec3;
+
+// Scene configuration
+const config = {
+    canvasSize: 600,
+    maxRecursion: 3,
+    ambientLight: 0.1,
+    backgroundColor: [0, 0, 0]
+};
+
+// Initialize scene
+const scene = {
+    objects: [
+        // Red metallic sphere
+        {
+            type: 'sphere',
+            position: [-2, 1, 0],
+            radius: 1,
+            color: [255, 50, 50],
+            material: { reflection: 0.8, roughness: 0.2 }
+        },
+        // Glass sphere
+        {
+            type: 'sphere',
+            position: [0.5, 1, -0.5],
+            radius: 0.6,
+            color: [200, 200, 255],
+            material: { ior: 1.5, transparency: 0.9 }
+        },
+        // Floor plane
+        {
+            type: 'plane',
+            position: [0, -0.5, 0],
+            normal: [0, 1, 0],
+            color: [150, 150, 150],
+            material: { reflection: 0.3 }
+        }
+    ],
+    lights: [
+        { position: [3, 5, -4], intensity: 0.7 },
+        { position: [-2, 5, -3], intensity: 0.4 }
+    ]
+};
+
+// Core raytracing functions
+function traceRay(origin, direction, depth = 0) {
+    if(depth > config.maxRecursion) return config.backgroundColor;
+    
+    // Ray intersection logic
+    let closestHit = null;
+    
+    for(const obj of scene.objects) {
+        const t = intersect(origin, direction, obj);
+        if(t && (!closestHit || t < closestHit.t)) {
+            closestHit = { obj, t };
+        }
+    }
+    
+    if(!closestHit) return config.backgroundColor;
+    
+    // Calculate lighting
+    const hitPoint = vec3.scaleAndAdd(vec3.create(), origin, direction, closestHit.t);
+    const normal = calculateNormal(hitPoint, closestHit.obj);
+    
+    let color = calculatePhongIllumination(hitPoint, normal, closestHit.obj);
+    
+    // Handle reflections
+    if(closestHit.obj.material.reflection > 0) {
+        const reflectionDir = reflect(direction, normal);
+        const reflectionColor = traceRay(hitPoint, reflectionDir, depth + 1);
+        color = mixColors(color, reflectionColor, closestHit.obj.material.reflection);
+    }
+    
+    return color;
+}
+
+// Interactive controls
+document.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('rtCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    function renderScene() {
+        const imageData = ctx.createImageData(canvas.width, canvas.height);
+        
+        for(let y = 0; y < canvas.height; y++) {
+            for(let x = 0; x < canvas.width; x++) {
+                const rayDir = calculateRayDirection(x, y);
+                const color = traceRay([0, 2, -5], rayDir);
+                setPixel(imageData, x, y, color);
+            }
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+    }
+    
+    // Add event listeners for controls
+    document.getElementById('brightness').addEventListener('input', function(e) {
+        document.getElementById('brightVal').textContent = e.target.value;
+        config.ambientLight = parseFloat(e.target.value);
+        renderScene();
+    });
+    
+    // Initial render
+    renderScene();
+});
+
+// Helper functions
+function calculateRayDirection(x, y) {
+    // Implement proper ray direction calculation
+    return vec3.normalize(vec3.create(), [
+        (x - 300) / 300,
+        (300 - y) / 300,
+        -1
+    ]);
+}
+
+function setPixel(imageData, x, y, color) {
+    const i = (y * imageData.width + x) * 4;
+    imageData.data[i] = color[0];
+    imageData.data[i+1] = color[1];
+    imageData.data[i+2] = color[2];
+    imageData.data[i+3] = 255;
+}
+</script>
+</body>
+</html>
